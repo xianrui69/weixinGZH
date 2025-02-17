@@ -1,91 +1,66 @@
-import json
-import logging
-
-from django.http import JsonResponse
-from django.shortcuts import render
-from wxcloudrun.models import Counters
-
-
-logger = logging.getLogger('log')
+from datetime import datetime
+from flask import render_template, request
+from run import app
+from wxcloudrun.dao import delete_counterbyid, query_counterbyid, insert_counter, update_counterbyid
+from wxcloudrun.model import Counters
+from wxcloudrun.response import make_succ_empty_response, make_succ_response, make_err_response
 
 
-def index(request, _):
+@app.route('/')
+def index():
     """
-    获取主页
-
-     `` request `` 请求对象
+    :return: 返回index页面
     """
+    return render_template('index.html')
 
-    return render(request, 'index.html')
 
-
-def counter(request, _):
+@app.route('/api/count', methods=['POST'])
+def count():
     """
-    获取当前计数
-
-     `` request `` 请求对象
+    :return:计数结果/清除结果
     """
 
-    rsp = JsonResponse({'code': 0, 'errorMsg': ''}, json_dumps_params={'ensure_ascii': False})
-    if request.method == 'GET' or request.method == 'get':
-        rsp = get_count()
-    elif request.method == 'POST' or request.method == 'post':
-        rsp = update_count(request)
+    # 获取请求体参数
+    params = request.get_json()
+
+    # 检查action参数
+    if 'action' not in params:
+        return make_err_response('缺少action参数')
+
+    # 按照不同的action的值，进行不同的操作
+    action = params['action']
+
+    # 执行自增操作
+    if action == 'inc':
+        counter = query_counterbyid(1)
+        if counter is None:
+            counter = Counters()
+            counter.id = 1
+            counter.count = 1
+            counter.created_at = datetime.now()
+            counter.updated_at = datetime.now()
+            insert_counter(counter)
+        else:
+            counter.id = 1
+            counter.count += 1
+            counter.updated_at = datetime.now()
+            update_counterbyid(counter)
+        return make_succ_response(counter.count)
+
+    # 执行清0操作
+    elif action == 'clear':
+        delete_counterbyid(1)
+        return make_succ_empty_response()
+
+    # action参数错误
     else:
-        rsp = JsonResponse({'code': -1, 'errorMsg': '请求方式错误'},
-                            json_dumps_params={'ensure_ascii': False})
-    logger.info('response result: {}'.format(rsp.content.decode('utf-8')))
-    return rsp
+        return make_err_response('action参数错误')
 
 
+@app.route('/api/count', methods=['GET'])
 def get_count():
     """
-    获取当前计数
+    :return: 计数的值
     """
-
-    try:
-        data = Counters.objects.get(id=1)
-    except Counters.DoesNotExist:
-        return JsonResponse({'code': 0, 'data': 0},
-                    json_dumps_params={'ensure_ascii': False})
-    return JsonResponse({'code': 0, 'data': data.count},
-                        json_dumps_params={'ensure_ascii': False})
-
-
-def update_count(request):
-    """
-    更新计数，自增或者清零
-
-    `` request `` 请求对象
-    """
-
-    logger.info('update_count req: {}'.format(request.body))
-
-    body_unicode = request.body.decode('utf-8')
-    body = json.loads(body_unicode)
-
-    if 'action' not in body:
-        return JsonResponse({'code': -1, 'errorMsg': '缺少action参数'},
-                            json_dumps_params={'ensure_ascii': False})
-
-    if body['action'] == 'inc':
-        try:
-            data = Counters.objects.get(id=1)
-        except Counters.DoesNotExist:
-            data = Counters()
-        data.id = 1
-        data.count += 1
-        data.save()
-        return JsonResponse({'code': 0, "data": data.count},
-                    json_dumps_params={'ensure_ascii': False})
-    elif body['action'] == 'clear':
-        try:
-            data = Counters.objects.get(id=1)
-            data.delete()
-        except Counters.DoesNotExist:
-            logger.info('record not exist')
-        return JsonResponse({'code': 0, 'data': 0},
-                    json_dumps_params={'ensure_ascii': False})
-    else:
-        return JsonResponse({'code': -1, 'errorMsg': 'action参数错误'},
-                    json_dumps_params={'ensure_ascii': False})
+    counter = Counters.query.filter(Counters.id == 1).first()
+    return make_succ_response(0) if counter is None else make_succ_response(counter.count)
